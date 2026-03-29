@@ -1,8 +1,10 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import { fetchVpsPublicSnapshot } from '../lib/api.js';
+import { fetchVpsPublicSnapshot, fetchVpsPublicNodeDetail } from '../lib/api.js';
 import VpsMetricChart from '../components/vps/VpsMetricChart.vue';
+import VpsLatencyChart from '../components/vps/VpsLatencyChart.vue';
+import Switch from '../components/ui/Switch.vue';
 
 const route = useRoute();
 
@@ -18,6 +20,40 @@ const mouseY = ref(0);
 const updateMouse = (e) => {
   mouseX.value = e.clientX;
   mouseY.value = e.clientY;
+};
+
+// Node Detail & Latency Chart
+const selectedNodeId = ref(null);
+const nodeDetailData = ref({
+  loading: false,
+  node: null,
+  samples: []
+});
+const isSmooth = ref(true);
+const showAllPoints = ref(false);
+
+const openNodeDetail = async (nodeId) => {
+  if (selectedNodeId.value === nodeId) {
+    selectedNodeId.value = null;
+    return;
+  }
+  selectedNodeId.value = nodeId;
+  nodeDetailData.value.loading = true;
+  nodeDetailData.value.samples = [];
+
+  const result = await fetchVpsPublicNodeDetail(nodeId);
+  if (result.success) {
+    nodeDetailData.value.node = result.data.data;
+    nodeDetailData.value.samples = result.data.networkSamples || [];
+    // Body scroll lock
+    document.body.style.overflow = 'hidden';
+  }
+  nodeDetailData.value.loading = false;
+};
+
+const closeNodeDetail = () => {
+  selectedNodeId.value = null;
+  document.body.style.overflow = '';
 };
 
 const displayMetrics = ref({
@@ -564,6 +600,16 @@ onUnmounted(() => {
                       <span class="text-xl mb-1">📡</span>
                       <p class="text-[10px] text-[#8a7f70] dark:text-slate-400">暂无网络监控数据</p>
                     </div>
+
+                    <!-- History Detail Button -->
+                    <div class="mt-auto pt-2 border-t border-[#efe6db]/60 dark:border-slate-800/60">
+                      <button 
+                        @click.stop="openNodeDetail(node.id)"
+                        class="w-full py-2 rounded-xl bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 text-[10px] font-bold uppercase tracking-wider hover:bg-blue-500 hover:text-white transition-all"
+                      >
+                        {{ selectedNodeId === node.id ? '收起曲线' : '查看延迟曲线' }}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -813,11 +859,111 @@ onUnmounted(() => {
                     <span class="text-xl mb-1">📡</span>
                     <p class="text-[10px] text-[#8a7f70] dark:text-slate-400">暂无网络监控数据</p>
                   </div>
+
+                  <!-- History Detail Button -->
+                  <div class="mt-auto pt-2 border-t border-[#efe6db]/60 dark:border-slate-800/60">
+                    <button 
+                      @click.stop="openNodeDetail(node.id)"
+                      class="w-full py-2 rounded-xl bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 text-[10px] font-bold uppercase tracking-wider hover:bg-blue-500 hover:text-white transition-all"
+                    >
+                      {{ selectedNodeId === node.id ? '收起曲线' : '查看延迟曲线' }}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+
+        <!-- Latency Chart Modal -->
+        <transition
+          enter-active-class="transition duration-300 ease-out"
+          enter-from-class="opacity-0"
+          enter-to-class="opacity-100"
+          leave-active-class="transition duration-200 ease-in"
+          leave-from-class="opacity-100"
+          leave-to-class="opacity-0"
+        >
+          <div v-if="selectedNodeId" class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-10 overflow-hidden">
+            <!-- Backdrop -->
+            <div class="absolute inset-0 bg-slate-950/60 backdrop-blur-md" @click="closeNodeDetail"></div>
+            
+            <!-- Modal Content -->
+            <transition
+              enter-active-class="transition duration-500 ease-out"
+              enter-from-class="transform scale-90 translate-y-8 opacity-0"
+              enter-to-class="transform scale-100 translate-y-0 opacity-100"
+              appear
+            >
+              <div class="relative w-full max-w-5xl bg-white dark:bg-slate-900 rounded-[32px] shadow-2xl border border-white/20 overflow-hidden flex flex-col max-h-[90vh]">
+                <!-- Header -->
+                <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50 backdrop-blur-sm sticky top-0 z-10">
+                  <div class="flex items-center gap-3">
+                    <div class="flex items-center justify-center w-10 h-10 rounded-2xl bg-blue-500/10 text-blue-500">
+                      <span class="text-xl">📈</span>
+                    </div>
+                    <div>
+                      <h2 class="text-lg font-bold text-slate-900 dark:text-white leading-tight">
+                        {{ nodeDetailData.node?.name || '节点' }} 延迟趋势分析
+                      </h2>
+                      <div class="flex items-center gap-2 mt-0.5">
+                        <span class="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">{{ nodeDetailData.node?.region || '未知地区' }}</span>
+                        <span class="text-[10px] text-slate-300 dark:text-slate-600">/</span>
+                        <span class="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">最近 48 小时采样</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="flex items-center gap-4">
+                    <div class="hidden sm:flex items-center gap-3 px-3 py-1.5 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                      <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">曲线平滑</span>
+                      <Switch v-model="isSmooth" size="sm" />
+                    </div>
+                    <button 
+                      @click="closeNodeDetail"
+                      class="flex items-center justify-center w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-rose-500/10 hover:text-rose-500 transition-all active:scale-90"
+                    >
+                      <span class="text-xl">×</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Body -->
+                <div class="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                  <div v-if="nodeDetailData.loading" class="h-[300px] flex items-center justify-center">
+                    <div class="flex flex-col items-center gap-4">
+                      <div class="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                      <p class="text-xs text-slate-500 dark:text-slate-400 animate-pulse font-medium">正在拉取历史多点采样数据...</p>
+                    </div>
+                  </div>
+                  <div v-else-if="nodeDetailData.samples.length">
+                    <VpsLatencyChart :samples="nodeDetailData.samples" :smooth="isSmooth" />
+                    <div class="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      <div v-for="metric in [
+                        { label: '监测点位', val: [...new Set(nodeDetailData.samples.flatMap(s => s.checks?.map(c => c.name) || []))].length + ' 个' },
+                        { label: '采样总量', val: nodeDetailData.samples.length + ' 组' },
+                        { label: '覆盖时长', val: '约 48 小时' },
+                        { label: '状态更新', val: '实时同步' }
+                      ]" :key="metric.label" class="p-3 bg-slate-50/80 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800">
+                        <p class="text-[9px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest mb-1">{{ metric.label }}</p>
+                        <p class="text-sm font-bold text-slate-700 dark:text-slate-200">{{ metric.val }}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="h-[300px] flex flex-col items-center justify-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[24px] bg-slate-50/30 dark:bg-black/10">
+                    <span class="text-3xl mb-3 opacity-30">📊</span>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 font-medium tracking-widest">该节点暂无历史采样数据</p>
+                  </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="p-4 px-6 bg-slate-50/30 dark:bg-slate-900/30 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                  <p class="text-[9px] text-slate-400 dark:text-slate-600 font-medium">由 MiSub VPS 监控引擎提供实时数据驱动</p>
+                </div>
+              </div>
+            </transition>
+          </div>
+        </transition>
 
         <details class="rounded-[30px] border border-[#e7e1d6] bg-white/80 backdrop-blur-2xl p-6 shadow-[0_20px_60px_-40px_rgba(31,27,23,0.45)] dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/50">
           <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold text-[#1f1b17] dark:text-slate-100">
